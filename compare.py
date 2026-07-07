@@ -19,16 +19,15 @@ HEADER_FIELDS = [
     ("flags", 0x06, ">H"),
     ("entrypoint", 0x08, ">I"),
     ("size", 0x0C, ">I"),
-    ("payload_indicator", 0x50, ">H"),
     ("kv_size", 0x60, ">I"),
-    ("cf_offset", 0x64, ">I"),
+    ("sys_update_addr", 0x64, ">I"),
     ("patch_slots", 0x68, ">h"),
     ("kv_version", 0x6A, ">H"),
     ("kv_addr", 0x6C, ">I"),
-    ("fs_addr", 0x70, ">I"),
+    ("fs_offset", 0x70, ">I"),
     ("smc_config_offset", 0x74, ">I"),
-    ("smc_boot_size", 0x78, ">I"),
-    ("smc_boot_offset", 0x7C, ">I"),
+    ("smc_size", 0x78, ">I"),
+    ("smc_addr", 0x7C, ">I"),
 ]
 
 MAGIC_NAMES = {
@@ -264,6 +263,123 @@ def maybe_strip_ecc(raw: bytes) -> tuple[bytes, bool]:
 
 def parse_header(image: bytes) -> dict[str, int]:
     return {name: struct.unpack_from(fmt, image, off)[0] for name, off, fmt in HEADER_FIELDS}
+
+
+# Filesystem spare data scanning constants
+FsRootEntry = 0x30
+FsRootEntryAlt = 0x2C
+
+def parse_spare_data_smallblock(spare: bytes) -> tuple[int, int]:
+    """
+    Parse spare data (16 bytes) in SmallBlock format.
+    Returns (FsSequence, FsBlockType)
+    """
+    if len(spare) < 16:
+        return 0, 0
+    
+    # FsSequence bytes: 2,3,4,6
+    fs_seq = spare[2] | (spare[3] << 8) | (spare[4] << 16) | (spare[6] << 24)
+    
+    # FsBlockType is in EDC[0] which is at byte 12
+    fs_block_type = spare[12]
+    
+    return fs_seq, fs_block_type
+
+
+def parse_spare_data_bigblock(spare: bytes) -> tuple[int, int]:
+    """
+    Parse spare data (16 bytes) in BigBlock format.
+    Returns (FsSequence, FsBlockType)
+    """
+    if len(spare) < 16:
+        return 0, 0
+    
+    # FsSequence bytes: 3,4,5
+    fs_seq = spare[3] | (spare[4] << 8) | (spare[5] << 16)
+    
+    # FsBlockType is in EDC[0] which is at byte 12
+    fs_block_type = spare[12]
+    
+    return fs_seq, fs_block_type
+
+
+def detect_nand_type(raw: bytes) -> str:
+    """
+    Detect NAND type by reading spare data at offset 0x4400.
+    Returns 'bigblock', 'smallblock', 'bigonsmall', or 'none' (eMMC)
+    """
+    PAGE_SIZE_WITH_SPARE = 0x210  # 528 bytes (512 + 16)
+    
+    if len(raw) < 0x4400 + 0x10:
+        return "none"
+    
+    # Read spare data at page that contains 0x4400
+    # For 0x210 page+spare size, page containing 0x4400 is:
+    page_num = 0x4400 // 0x200  # 0x4400 / 512 = 0x11 = 17
+    page_start = page_num * PAGE_SIZE_WITH_SPARE
+    spare_start = page_start + 0x200
+    
+    if spare_start + 0x10 > len(raw):
+        return "none"
+    
+    spare = raw[spare_start:spare_start + 0x10]
+    
+    if spare[0] == 0xFF:
+        return "bigblock"
+    elif len(spare) > 5 and spare[5] == 0xFF:
+        return "smallblock"
+    elif len(spare) > 1 and spare[1] == 1:
+        return "bigonsmall"
+    else:
+        return "none"
+
+
+def scan_filesystem_offsets(raw: bytes, page_size: int = 0x200, spare_size: int = 0x10, 
+                           pages_per_block: int = 0x40) -> list[int]:
+    """
+    Scan spare data for filesystem root entries.
+    Returns list of unique byte offsets where filesystems were found.
+    """
+    offsets = []
+    page_total = page_size + spare_size
+    
+    if len(raw) < page_total:
+        return offsets
+    
+    # Detect NAND type
+    nand_type = detect_nand_type(raw)
+    
+    # Parse spare data based on type
+    if nand_type in ("smallblock", "bigonsmall"):
+        parse_func = parse_spare_data_smallblock
+    elif nand_type == "bigblock":
+        parse_func = parse_spare_data_bigblock
+    else:
+        # eMMC has no spare data
+        return offsets
+    
+    # Scan each page
+    num_pages = len(raw) // page_total
+    for page_idx in range(num_pages):
+        page_start = page_idx * page_total
+        spare_start = page_start + page_size
+        spare_end = spare_start + spare_size
+        
+        if spare_end > len(raw):
+            break
+        
+        spare = raw[spare_start:spare_end]
+        fs_seq, fs_block_type = parse_func(spare)
+        
+        # Check for filesystem markers
+        if fs_seq != 0 and fs_block_type in (FsRootEntry, FsRootEntryAlt):
+            # Calculate block number and offset
+            block_idx = page_idx // pages_per_block
+            block_offset = block_idx * pages_per_block * page_size
+            if block_offset not in offsets:
+                offsets.append(block_offset)
+    
+    return offsets
 
 
 def diff_count(a: bytes, b: bytes) -> int:
@@ -587,8 +703,8 @@ def main() -> None:
     kv_b = extract_slice(logical_b, header_b["kv_addr"], header_b["kv_size"])
     compare_sections("KV", kv_a, kv_b)
 
-    smc_a = extract_slice(logical_a, header_a["smc_boot_offset"], header_a["smc_boot_size"])
-    smc_b = extract_slice(logical_b, header_b["smc_boot_offset"], header_b["smc_boot_size"])
+    smc_a = extract_slice(logical_a, header_a["smc_addr"], header_a["smc_size"])
+    smc_b = extract_slice(logical_b, header_b["smc_addr"], header_b["smc_size"])
     compare_sections("SMC (encrypted)", smc_a, smc_b)
 
     smc_dec_a = decrypt_smc(smc_a) if smc_a else b""
@@ -605,6 +721,30 @@ def main() -> None:
     compare_sections("SMC Config", smc_config_a, smc_config_b)
     print(f"SMC Config A meaningful: {contains_meaningful_data(smc_config_a)}")
     print(f"SMC Config B meaningful: {contains_meaningful_data(smc_config_b)}")
+
+    # Filesystem detection via spare data scanning
+    print("\n[Filesystem Detection]")
+    nand_type_a = detect_nand_type(raw_a)
+    nand_type_b = detect_nand_type(raw_b)
+    print(f"NAND type A: {nand_type_a}")
+    print(f"NAND type B: {nand_type_b}")
+    
+    fs_offsets_a = scan_filesystem_offsets(raw_a)
+    fs_offsets_b = scan_filesystem_offsets(raw_b)
+    
+    if fs_offsets_a:
+        print(f"Filesystem offsets A: {', '.join(f'0x{off:08X}' for off in sorted(fs_offsets_a))}")
+    else:
+        print("Filesystem offsets A: none found (eMMC or no spare data)")
+    
+    if fs_offsets_b:
+        print(f"Filesystem offsets B: {', '.join(f'0x{off:08X}' for off in sorted(fs_offsets_b))}")
+    else:
+        print("Filesystem offsets B: none found (eMMC or no spare data)")
+    
+    # Compare with header fields
+    print(f"Header fs_offset A: 0x{header_a.get('fs_offset', 0):08X}")
+    print(f"Header fs_offset B: 0x{header_b.get('fs_offset', 0):08X}")
 
     compare_bootloaders(logical_a, logical_b)
     compare_bootloader_decryption(logical_a, logical_b, secret_1bl, cpu_key)
