@@ -1,0 +1,321 @@
+---------------------------------------------------------------
+     xeBuild v1.21.810
+---------------------------------------------------------------
+base path changed to Z:\home\e3xp0\Downloads\xeBuild_1.21
+---- { Image Build Mode } ----
+data directory overridden from command line to '17559/'
+per build directory overridden from command line to 'mydata/'
+CPU key overridden from command line, not looking for cpukey.txt
+CPU Key set to: 0xD5E4BC0FB6A46C398CCD21DE21E14F4F (weight:0x35 valid; ecd: valid)
+building glitch image
+
+------ parsing user ini at 'mydata/options.ini' ------
+loading file...done!
+pre-parsing and sanitizing
+done!
+User options.ini loaded, 0x1a0 bytes in memory
+loading 1blkey.txt from 1blkey.txt
+1BL Key set to  : 0xDD88AD0C9ED669E7B56794FB68563EFA sum: 0x983 (expects: 0x983)
+xex Key set to  : 0x20B185A59D28FDC340583FBB0896BF91 sum: 0x800 (expects: 0x800)
+Using patchsmc option (ini file)
+
+------ parsing ini at '17559/_glitch.ini' ------
+ini version 17559
+
+ini: label [jasperbl] found
+found (1) 'cb_6750.bin' crc: 0xf7afa8cc
+found (2) 'none' crc: 0x00000000
+found (3) 'cd_8453.bin' crc: 0x25e0acd0
+found (4) 'ce_1888.bin' crc: 0xff9b60df
+found (5) 'cf_17559.bin' crc: 0x0883e155
+found (6) 'cg_17559.bin' crc: 0x10fbc84d
+
+[rawpatch] label not found in ini
+
+ini: label [flashfs] found
+found (1) 'aac.xexp' crc: 0x52ba20e7
+found (2) 'bootanim.xex' crc: 0x58b9bc04
+found (3) 'createprofile.xex' crc: 0xcf1298f6
+found (4) 'dash.xex' crc: 0xd2089a4c
+found (5) 'deviceselector.xex' crc: 0x29ce4e91
+found (6) 'gamerprofile.xex' crc: 0xceaad08d
+found (7) 'hud.xex' crc: 0x08bb0757
+found (8) 'huduiskin.xex' crc: 0xd15503c5
+found (9) 'mfgbootlauncher.xex' crc: 0xd2ade6d7
+found (10) 'minimediaplayer.xex' crc: 0xd40344c2
+found (11) 'nomni.xexp' crc: 0xa909bc65
+found (12) 'nomnifwk.xexp' crc: 0xee23015a
+found (13) 'nomnifwm.xexp' crc: 0x2b3c49cb
+found (14) 'SegoeXbox-Light.xtt' crc: 0xe0ee6049
+found (15) 'signin.xex' crc: 0xc8325be2
+found (16) 'updater.xex' crc: 0x3fc0dd46
+found (17) 'vk.xex' crc: 0xf4e3b4ad
+found (18) 'xam.xex' crc: 0x2e587769
+found (19) 'xenonclatin.xtt' crc: 0xd5d17ff5
+found (20) 'xenonclatin.xttp' crc: 0x7a507ad1
+found (21) 'xenonjklatin.xtt' crc: 0xdde4a14c
+found (22) 'xenonjklatin.xttp' crc: 0xe2adddfb
+found (23) 'ximecore.xex' crc: 0x725fd6ac
+found (24) 'ximedic.xex' crc: 0x1d992bfb
+found (25) 'ximedic.xexp' crc: 0x17be369a
+found (26) '..\launch.xex' crc: 0x00000000
+found (27) '..\lhelper.xex' crc: 0x00000000
+found (28) '..\launch.ini' crc: 0x00000000
+
+ini: label [security] found
+found (1) 'crl.bin' crc: 0x00000000
+found (2) 'dae.bin' crc: 0x00000000
+found (3) 'extended.bin' crc: 0x00000000
+found (4) 'fcrt.bin' crc: 0x00000000
+found (5) 'secdata.bin' crc: 0x00000000
+------ ini parsing completed ------
+
+auto image name used: 17559_gg_jasper.bin
+
+1BL RSA pub key (1BL_pub.bin) not available, signature checks will not be performed
+PIRS RSA pub key (PIRS_pub.bin) not available, signature checks will not be performed
+MASTER RSA pub key (MAST_pub.bin) not available, signature checks will not be performed
+
+------ Checking mydata/nanddump.bin ------
+mydata/nanddump.bin file size: 0x1080000
+nanddump header checks passed OK!
+Loading NAND dump (0x1080000 bytes)...done!
+Detecting NAND controller type from dump data...
+	NAND dump is from a small block machine
+	NAND dump uses big block controller
+parsing dump into user and spare...
+done!
+decrypting KeyVault at address 0x4000 of size 0x4000
+keyvault decrypted OK, will use if no kv.bin is provided
+decrypting SMC at address 0x1000 of size 0x3000
+SMC decrypted OK, will use if no external smc.bin is provided
+seeking smc config in dump...found at offset 0xf7c000! Using if no smc config is provided.
+CF slot 0 decrypted ok LDV 0x0c Pairing: 0xf29958
+setting LDV from image to 12
+setting pairing data from image to 0xf29958
+pairing set to: f2 99 58
+Scanning for mobile data and fsroot...Mobiles found:
+    fsroot      version 01 found at offset 0x00df4000 len 0x4000 page 0x00006fa0
+seeking security files...
+crl.bin found in sector 0x376 size 0xa00...verified! Will use if external file not found.
+dae.bin found in sector 0x377 size 0xad30...verified! Will use if external file not found.
+extended.bin found in sector 0x37a size 0x4000...verified! Will use if external file not found.
+fcrt.bin found in sector 0x37b size 0x4000...pub key to verify signature is not available, skipping!
+verified! Will use if external file not found.
+secdata.bin found in sector 0x37c size 0x400...verified! Will use if external file not found.
+done!
+Writing initial header to flash image
+
+------ loading system update container ------
+17559/su20076000_00000000 found, loading...done!
+	Read 0xb50000 bytes to memory
+checking integrity...
+header seems valid, version 2.0.17559.0
+header hash is OK, checking content hashes...
+content hashes seem OK, everything looks good!
+extracted SUPD/xboxupd.bin (0x7bfe0 bytes)
+decrypting SUPD/xboxupd.bin/CF_17559.bin (0x4560 bytes)...done!
+decrypting SUPD/xboxupd.bin/CG_17559.bin (0x77a76 bytes)...done!
+
+------ Loading bootloaders and required security files ------
+reading mydata/smc.bin (0x3000 bytes)
+reset smc load address to 0x1000 size 0x3000
+reading mydata/kv.bin failed, using kv.bin from nand dump
+reading ./common/cb_6750.bin (0x9a40 bytes)
+loaded cb_6750.bin, could not check signature rsa key not present!
+reading ./common/cd_8453.bin (0x5780 bytes)
+reading ./common/ce_1888.bin (0x5606a b pad 0x56070 b)
+xell not found in perbuild directory, checking firmware /bin folder
+xell not found in firmware /bin folder, checking base path
+reading xell-gggggg.bin (0x40000 bytes)
+extracted SUPD/xboxupd.bin/CF_17559.bin (0x4560 bytes)
+extracted SUPD/xboxupd.bin/CG_17559.bin (0x77a76 bytes)
+reading 17559/bin/patches_fat.bin (0x904 bytes)
+reading 17559/bin/nofcrt.bin (0x20 bytes)
+added 0x20 bytes to patches via 1 external patch files
+    patches now 0x928 bytes total with addon byte count appended
+reading mydata/smc_config.bin failed, using smc_config.bin from nand dump
+-------------------
+checking smc_config
+-------------------
+extracting config
+------------------
+SMC config info:
+------------------
+Target temps: Cpu:  82øC Gpu:  78øC Edram:  76øC
+Max temps   : Cpu:  89øC Gpu:  82øC Edram:  82øC
+Cpu Fan     : (auto)
+Gpu Fan     : (auto)
+MAC Address : 00:25:ae:e9:04:45
+AVRegion    : 0x00000100 (NTSC-M)
+GameRegion  : 0x00ff (NTSC/US)
+DVDRegion   : 1
+resetKey    : YYDD
+---------------------
+Checking for smc config data patches
+smc config was not patched
+---------------------
+could not check signature of cb_6750.bin, 1BL RSA key not present!
+done!
+patch slot offset reset to: 0xb0000
+
+------ Patching BLs and modifying patches ------
+Patching BLs...Done!
+
+------ Patching boot reasons and options into flash header ------
+	Patching header for xell power reason
+
+------ Encrypting and finalizing bootloaders ------
+encoding smc.bin size 0x3000
+SMC checksum: f9c96639
+known clean SMC found, type: Trinity v5.1(3.01)
+patching SMC reset limit at offset: 0x13b3
+SMC reset limit patched successfully!
+encoding kv.bin size 0x4000
+decrypted keyvault has been set for reference
+Master RSA pub not available, not checking hash
+encoding cb_6750.bin size 0x9a40
+CB 6750 seq 0x01070050 type: 0x01 cseq: 0x07 allow: 0x0050
+	expected fuses:
+	fuseset 00: C0FFFFFFFFFFFFFF
+	fuseset 01: 0F0F0F0F0F0F0FF0 (retail)
+	fuseset 02: 000000F000000000 (sequence)
+	fuseset 02: 0000F00000000000 (allow cseq 5)
+	fuseset 02: 000000F000000000 (allow cseq 7)
+encoding cd_8453.bin size 0x5b00
+encoding ce_1888.bin size 0x56070
+encoding xell-gggggg.bin size 0x40000
+encoding cf_17559.bin size 0x4560
+encoding cg_17559.bin size 0x77a80
+encoding patches_fat.bin size 0x568
+done!
+
+------ Adding bootloaders to flash image ------
+adding smc.bin at raw offset 0x00001000 len 0x3000 (end 0x4000)
+adding kv.bin at raw offset 0x00004000 len 0x4000 (end 0x8000)
+adding cb_6750.bin at raw offset 0x00008000 len 0x9a40 (end 0x11a40)
+adding cd_8453.bin at raw offset 0x00011a40 len 0x5b00 (end 0x17540)
+adding ce_1888.bin at raw offset 0x00017540 len 0x56070 (end 0x6d5b0)
+adding xell-gggggg.bin at raw offset 0x00070000 len 0x40000 (end 0xb0000)
+adding cf_17559.bin at raw offset 0x000b0000 len 0x4560 (end 0xb4560)
+adding cg_17559.bin at raw offset 0x000b4560 len 0x77a80 (end 0xc0000, rest in fs)
+adding patches_fat.bin at raw offset 0x000c0010 len 0x568 (end 0xc0578)
+Fixing up FS table...done!
+Writing zeropair CG patch slot overflow data to sysupdate.xexp1
+	at raw offset 0xd0000 len 0x0006bfe0 (end: 0x0013bfe0)...done!
+
+------ adding 28 firmware files ------
+extracted SUPD/aac.xexp (0x14000 bytes) (crc32: 0x52ba20e7 ini: 0x52ba20e7)
+	adding as aac.xexp1 at raw offset 0x13bfe0 len 0x00014000 (end 0x0014ffe0)
+extracted SUPD/bootanim.xex (0x61000 bytes) (crc32: 0x58b9bc04 ini: 0x58b9bc04)
+	adding as bootanim.xex at raw offset 0x150000 len 0x00061000 (end 0x001b1000)
+extracted SUPD/createprofile.xex (0xc000 bytes) (crc32: 0xcf1298f6 ini: 0xcf1298f6)
+	adding as createprofile.xex at raw offset 0x1b1000 len 0x0000c000 (end 0x001bd000)
+extracted SUPD/dash.xex (0x5b2000 bytes) (crc32: 0xd2089a4c ini: 0xd2089a4c)
+	adding as dash.xex at raw offset 0x1c0000 len 0x005b2000 (end 0x00772000)
+extracted SUPD/deviceselector.xex (0xa000 bytes) (crc32: 0x29ce4e91 ini: 0x29ce4e91)
+	adding as deviceselector.xex at raw offset 0x772000 len 0x0000a000 (end 0x0077c000)
+extracted SUPD/gamerprofile.xex (0x1b000 bytes) (crc32: 0xceaad08d ini: 0xceaad08d)
+	adding as gamerprofile.xex at raw offset 0x77e000 len 0x0001b000 (end 0x00799000)
+extracted SUPD/hud.xex (0x1d000 bytes) (crc32: 0x08bb0757 ini: 0x08bb0757)
+	adding as hud.xex at raw offset 0x79b000 len 0x0001d000 (end 0x007b8000)
+extracted SUPD/huduiskin.xex (0x14000 bytes) (crc32: 0xd15503c5 ini: 0xd15503c5)
+	adding as huduiskin.xex at raw offset 0x7b9000 len 0x00014000 (end 0x007cd000)
+extracted SUPD/mfgbootlauncher.xex (0x8000 bytes) (crc32: 0xd2ade6d7 ini: 0xd2ade6d7)
+	adding as mfgbootlauncher.xex at raw offset 0x7d0000 len 0x00008000 (end 0x007d8000)
+extracted SUPD/minimediaplayer.xex (0xc000 bytes) (crc32: 0xd40344c2 ini: 0xd40344c2)
+	adding as minimediaplayer.xex at raw offset 0x7d8000 len 0x0000c000 (end 0x007e4000)
+extracted SUPD/nomni.xexp (0xf000 bytes) (crc32: 0xa909bc65 ini: 0xa909bc65)
+	adding as nomni.xexp1 at raw offset 0x7e4000 len 0x0000f000 (end 0x007f3000)
+extracted SUPD/nomnifwk.xexp (0x2000 bytes) (crc32: 0xee23015a ini: 0xee23015a)
+	adding as nomnifwk.xexp1 at raw offset 0x7f3000 len 0x00002000 (end 0x007f5000)
+extracted SUPD/nomnifwm.xexp (0x5000 bytes) (crc32: 0x2b3c49cb ini: 0x2b3c49cb)
+	adding as nomnifwm.xexp1 at raw offset 0x7f6000 len 0x00005000 (end 0x007fb000)
+extracted SUPD/SegoeXbox-Light.xtt (0x6000 bytes) (crc32: 0xe0ee6049 ini: 0xe0ee6049)
+	adding as SegoeXbox-Light.xtt at raw offset 0x7fd000 len 0x00006000 (end 0x00803000)
+extracted SUPD/signin.xex (0x1a000 bytes) (crc32: 0xc8325be2 ini: 0xc8325be2)
+	adding as signin.xex at raw offset 0x806000 len 0x0001a000 (end 0x00820000)
+extracted SUPD/updater.xex (0x7000 bytes) (crc32: 0x3fc0dd46 ini: 0x3fc0dd46)
+	adding as updater.xex at raw offset 0x822000 len 0x00007000 (end 0x00829000)
+extracted SUPD/vk.xex (0xb000 bytes) (crc32: 0xf4e3b4ad ini: 0xf4e3b4ad)
+	adding as vk.xex at raw offset 0x82b000 len 0x0000b000 (end 0x00836000)
+extracted SUPD/xam.xex (0x250000 bytes) (crc32: 0x2e587769 ini: 0x2e587769)
+	adding as xam.xex at raw offset 0x837000 len 0x00250000 (end 0x00a87000)
+extracted nanddump/xenonclatin.xtt (0x11b000 bytes) (crc32: 0xd5d17ff5 ini: 0xd5d17ff5)
+	adding as xenonclatin.xtt at raw offset 0xa88000 len 0x0011b000 (end 0x00ba3000)
+extracted SUPD/xenonclatin.xttp (0x18000 bytes) (crc32: 0x7a507ad1 ini: 0x7a507ad1)
+	adding as xenonclatin.xttp1 at raw offset 0xba3000 len 0x00018000 (end 0x00bbb000)
+extracted nanddump/xenonjklatin.xtt (0x1a8000 bytes) (crc32: 0xdde4a14c ini: 0xdde4a14c)
+	adding as xenonjklatin.xtt at raw offset 0xbbc000 len 0x001a8000 (end 0x00d64000)
+extracted SUPD/xenonjklatin.xttp (0x7000 bytes) (crc32: 0xe2adddfb ini: 0xe2adddfb)
+	adding as xenonjklatin.xttp1 at raw offset 0xd64000 len 0x00007000 (end 0x00d6b000)
+extracted SUPD/ximecore.xex (0x17000 bytes) (crc32: 0x725fd6ac ini: 0x725fd6ac)
+	adding as ximecore.xex at raw offset 0xd6b000 len 0x00017000 (end 0x00d82000)
+extracted nanddump/ximedic.xex (0x90000 bytes) (crc32: 0x1d992bfb ini: 0x1d992bfb)
+	adding as ximedic.xex at raw offset 0xd83000 len 0x00090000 (end 0x00e13000)
+extracted SUPD/ximedic.xexp (0x2800 bytes) (crc32: 0x17be369a ini: 0x17be369a)
+	adding as ximedic.xexp1 at raw offset 0xe14000 len 0x00002800 (end 0x00e16800)
+***** could not read file '..\launch.xex', skipping *****
+***** could not read file '..\lhelper.xex', skipping *****
+***** could not read file '..\launch.ini', skipping *****
+
+------ adding 5 security files ------
+<- Processing crl.bin ->
+	could not read crl.bin, using data from SUPD...
+crl appears crypted, attempting to decrypt with CPU key...failed! Trying alternate key...success!
+	adding as crl.bin at raw offset 0xe18000 len 0x00000a00 (end 0x00e18a00)
+
+<- Processing dae.bin ->
+	could not read dae.bin, using data from SUPD...
+dae appears encrypted, attempting to decrypt with CPU key...failed! Attempting to decrypt with alternate key...
+success!
+	adding as dae.bin at raw offset 0xe1c000 len 0x00007090 (end 0x00e23090)
+
+<- Processing extended.bin ->
+	could not read extended.bin, using data from previous parse...
+	adding as extended.bin at raw offset 0xe24000 len 0x00004000 (end 0x00e28000)
+
+<- Processing fcrt.bin ->
+	could not read fcrt.bin, using data from previous parse...
+	adding as fcrt.bin at raw offset 0xe28000 len 0x00004000 (end 0x00e2c000)
+
+<- Processing secdata.bin ->
+	could not read secdata.bin, using data from previous parse...
+	adding as secdata.bin at raw offset 0xe2c000 len 0x00000400 (end 0x00e2c400)
+
+------ checking for Mobile*.dat ------
+
+------ adding smc_config.bin ------
+adding smc config to offset 0x00f7c000, len 0x400
+
+------ cleaning up image ------
+Fixing up empty FS block entries...done!
+Writing FS table to image offset 0xe30000 len 0x4000 (end 0xe34000)...done!
+
+------ finalizing image ------
+fixing up big block controller on small block NAND LBA numbers...done!
+calculating ECD bytes and assembling raw image...done!
+done remapping!
+
+------ writing image to disk ------
+writing file '17559_gg_jasper.bin' to disk...done!
+---------------------------------------------------------------
+17559_gg_jasper.bin image built, info:
+---------------------------------------------------------------
+Kernel    : 2.0.17559.0
+Console   : Jasper
+NAND size : 16MiB
+Build     : Glitch
+Xell      : power on console with console eject button
+Serial    : 114339713609
+ConsoleId : 283004847680
+MoboSerial: 9948531200671369
+Mfg Date  : 09/01/2011
+CPU Key   : D5E4BC0FB6A46C398CCD21DE21E14F4F
+1BL Key   : DD88AD0C9ED669E7B56794FB68563EFA
+DVD Key   : 8AFA1A78760576D1B9694EF36FB28E2B
+CF LDV    : 12
+KV type   : type2 (hashed - unchecked, master key not available)
+---------------------------------------------------------------
+    xeBuild Finished. Have a nice day.
+---------------------------------------------------------------
