@@ -1,4 +1,4 @@
-Xbox 360 Scripts and Research
+Xbox 360 Scripts
 
 compare.py -> compare two nand images
 

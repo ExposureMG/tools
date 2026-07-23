@@ -1,3 +1,4 @@
 *.bin
 *.txt
 _*.md
+__pycache__/
