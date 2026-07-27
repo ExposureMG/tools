@@ -106,35 +106,38 @@ class SpareInfo:
 def detect_spare_type(raw: bytes) -> SpareInfo:
     size = len(raw)
 
+    # Small Block / BigOnSmall: 512-byte data pages + 16-byte spare (528 bytes total per page)
+    if size % SB_TOTAL == 0 and size >= SB_TOTAL:
+        probe_page = 0x22
+        probe_off  = probe_page * SB_TOTAL + SB_PAGE_SIZE
+        p0_spare   = raw[SB_PAGE_SIZE : SB_PAGE_SIZE + SB_SPARE_SIZE] if size >= SB_TOTAL else b""
+        
+        # Check if page 0 spare or probe page spare looks like valid 16-byte per-page spare
+        if len(p0_spare) == SB_SPARE_SIZE and (p0_spare[0] == 0xFF or p0_spare[5] == 0xFF):
+            stype = SpareType.BIG_SMALL if p0_spare[0] == 0xFF else SpareType.SMALL
+            if probe_off + SB_SPARE_SIZE <= size:
+                spare = raw[probe_off : probe_off + SB_SPARE_SIZE]
+                if spare[0] == 0xFF:
+                    stype = SpareType.BIG_SMALL
+                elif len(spare) > 5 and spare[5] == 0xFF:
+                    stype = SpareType.SMALL
+            return SpareInfo(
+                spare_type=stype,
+                page_size=SB_PAGE_SIZE,
+                spare_size=SB_SPARE_SIZE,
+                page_total=SB_TOTAL,
+                lil_block_length=LIL_BLOCK_LENGTH,
+            )
+
     # Big Block: 2048-byte data pages + 64-byte spare (Jasper 256/512, TrinityBB)
     # lil_block_length is still 0x4000 (= 8 physical big-block pages)
-    if size % BB_TOTAL == 0 and size >= 0x840:
+    if size % BB_TOTAL == 0 and size >= BB_TOTAL:
         return SpareInfo(
             spare_type=SpareType.BIG,
             page_size=BB_PAGE_SIZE,     # 0x800 physical page size
             spare_size=BB_SPARE_SIZE,   # 0x40 spare per physical page
             page_total=BB_TOTAL,        # 0x840
             lil_block_length=LIL_BLOCK_LENGTH,  # 0x4000 logical
-        )
-
-    # Small Block / BigOnSmall: 512-byte data pages + 16-byte spare
-    if size % SB_TOTAL == 0 and size >= SB_TOTAL:
-        probe_page = 0x22
-        probe_off  = probe_page * SB_TOTAL + SB_PAGE_SIZE
-        if probe_off + SB_SPARE_SIZE <= size:
-            spare = raw[probe_off : probe_off + SB_SPARE_SIZE]
-            if spare[0] == 0xFF:
-                stype = SpareType.BIG_SMALL
-            else:
-                stype = SpareType.SMALL
-        else:
-            stype = SpareType.SMALL
-        return SpareInfo(
-            spare_type=stype,
-            page_size=SB_PAGE_SIZE,
-            spare_size=SB_SPARE_SIZE,
-            page_total=SB_TOTAL,
-            lil_block_length=LIL_BLOCK_LENGTH,
         )
 
     return SpareInfo(
@@ -166,15 +169,15 @@ def _spare_seq_smallblock(spare: bytes) -> int:
 
 
 def _spare_seq_bigonsmall(spare: bytes) -> int:
-    if len(spare) < 6:
+    if len(spare) < 5:
         return 0
-    return spare[3] | (spare[4] << 8) | (spare[5] << 16)
+    return spare[0] | (spare[3] << 8) | (spare[4] << 16)
 
 
 def _spare_seq_bigblock(spare: bytes) -> int:
     if len(spare) < 6:
         return 0
-    return spare[3] | (spare[4] << 8) | (spare[5] << 16)
+    return spare[5] | (spare[4] << 8) | (spare[3] << 16)
 
 
 def _spare_block_type_sb(spare: bytes) -> int:
@@ -182,7 +185,7 @@ def _spare_block_type_sb(spare: bytes) -> int:
 
 
 def _spare_block_type_bb(spare: bytes) -> int:
-    return spare[8] if len(spare) > 8 else 0
+    return spare[12] if len(spare) > 12 else 0
 
 
 def _spare_size_sb(spare: bytes) -> int:
@@ -202,6 +205,7 @@ def get_spare_accessors(si: SpareInfo):
         return (_spare_seq_bigblock, _spare_block_type_bb, None, None)
     else:
         return (_spare_seq_smallblock, _spare_block_type_sb, _spare_size_sb, _spare_page_count_sb)
+
 
 
 def read_page_spare(raw: bytes, page_idx: int, si: SpareInfo) -> Optional[bytes]:
@@ -379,7 +383,7 @@ def detect_flashfs_root_from_spare(raw: bytes, si: SpareInfo) -> Optional[FsRoot
         blk_type = get_block_type(spare)
         if seq == 0:
             continue
-        if blk_type not in (FS_ROOT_ENTRY, FS_ROOT_ENTRY_ALT):
+        if (blk_type & 0x3F) not in (FS_ROOT_ENTRY, FS_ROOT_ENTRY_ALT):
             continue
         if best is None or seq > best.sequence or (
             seq == best.sequence and block_idx > best.block_idx
@@ -417,24 +421,44 @@ class FlashFs:
     errors:    list = field(default_factory=list)
 
 
+def format_timestamp(ts: int) -> str:
+    if ts == 0:
+        return "N/A"
+    dos_date = (ts >> 16) & 0xFFFF
+    dos_time = ts & 0xFFFF
+    year = ((dos_date >> 9) & 0x7F) + 1980
+    month = (dos_date >> 5) & 0x0F
+    day = dos_date & 0x1F
+    hour = (dos_time >> 11) & 0x1F
+    minute = (dos_time >> 5) & 0x3F
+    second = (dos_time & 0x1F) * 2
+    if 1 <= month <= 12 and 1 <= day <= 31 and 0 <= hour <= 23 and 0 <= minute <= 59 and 0 <= second <= 59:
+        return f"{year:04d}-{month:02d}-{day:02d} {hour:02d}:{minute:02d}:{second:02d}"
+    return f"0x{ts:08X}"
+
+
 def _parse_fs_entry(data: bytes, off: int) -> Optional[FlashFsEntry]:
     if off + FS_ENTRY_SIZE > len(data):
         return None
-    # Read filename: find first null byte within the 22-byte field
     raw_name = data[off : off + FS_FILENAME_LEN]
-    # Find the first null byte
+    if raw_name[0] == 0x00:
+        return None
     null_pos = raw_name.find(b"\x00")
     if null_pos >= 0:
         raw_name = raw_name[:null_pos]
-    try:
-        name = raw_name.decode("ascii", errors="replace")
-    except Exception:
-        name = ""
+    if not raw_name:
+        return None
     deleted = False
-    if name and ord(name[0]) == 0x05:
-        name = "_" + name[1:]
+    if raw_name[0] == 0x05:
+        raw_name = b"_" + raw_name[1:]
         deleted = True
-    block_number, length, timestamp = struct.unpack_from("<H I I", data, off + FS_FILENAME_LEN)
+    try:
+        name = raw_name.decode("ascii")
+    except UnicodeDecodeError:
+        return None
+    block_number, length, timestamp = struct.unpack_from(">H I I", data, off + FS_FILENAME_LEN)
+    if block_number == 0 and length == 0:
+        return None
     return FlashFsEntry(
         filename     = name,
         block_number = block_number,
@@ -450,7 +474,7 @@ def load_flashfs(raw: bytes, logical: bytes, si: SpareInfo, block_idx: int, vers
 
     fs = FlashFs(block_idx=block_idx, version=version, blockmap=[], entries=[])
 
-    def _load_block(blk_idx: int) -> bool:
+    def _load_block(blk_idx: int, is_root: bool = False) -> bool:
         if blk_idx in visited:
             fs.errors.append(f"Cycle detected at block 0x{blk_idx:X}")
             return False
@@ -480,86 +504,51 @@ def load_flashfs(raw: bytes, logical: bytes, si: SpareInfo, block_idx: int, vers
                     break
                 if len(fs.blockmap) >= total_blocks:
                     break
-                val = struct.unpack_from("<H", pg_data, j * 2)[0]
+                val = struct.unpack_from(">H", pg_data, j * 2)[0]
                 fs.blockmap.append(val)
             if len(fs.blockmap) >= total_blocks:
                 break
 
-        done = False
-        for pg in entry_pages:
-            if done:
-                break
-            pg_data = block_data[pg * si.page_size : (pg + 1) * si.page_size]
-            for j in range(entries_per_page):
-                off = j * FS_ENTRY_SIZE
-                entry = _parse_fs_entry(pg_data, off)
-                if entry is None or not entry.filename:
-                    done = True
+        if is_root:
+            done = False
+            for pg in entry_pages:
+                if done:
                     break
-                fs.entries.append(entry)
+                pg_data = block_data[pg * si.page_size : (pg + 1) * si.page_size]
+                for j in range(entries_per_page):
+                    off = j * FS_ENTRY_SIZE
+                    entry = _parse_fs_entry(pg_data, off)
+                    if entry is None:
+                        done = True
+                        break
+                    if not any(e.filename == entry.filename for e in fs.entries):
+                        fs.entries.append(entry)
 
         if blk_idx < len(fs.blockmap):
             bmap_val = fs.blockmap[blk_idx] & 0x7FFF
             free_mask = FS_RESERVED & 0x7FFF
             if bmap_val < free_mask:
-                _load_block(bmap_val)
+                _load_block(bmap_val, is_root=False)
         return True
 
-    _load_block(block_idx)
+    _load_block(block_idx, is_root=True)
     return fs
 
 
 def _flashfs_has_valid_entries(fs: FlashFs) -> bool:
-    """Check if a FlashFS has at least some valid-looking entries (ASCII filenames, reasonable sizes)."""
+    """Check if a FlashFS has at least some valid system file entries."""
     if not fs.entries:
         return False
-    
-    # Known system filenames that should appear in a valid FlashFS
     known_files = {"crl.bin", "dae.bin", "extended.bin", "fcrt.bin", "secdata.bin",
                   "sysupdate.xexp1", "aac.xexp1", "bootanim.xex", "createprofile.xex",
                   "dash.xex", "deviceselector.xex", "gamerprofile.xex", "hud.xex",
                   "huduiskin.xex", "mfgbootlauncher.xex", "minimediaplayer.xex",
-                  "nomni.xexp1", "nomnifwk.xexp1", "nomnifwm.xexp1",
-                  "SegoeXbox-Light.xtt", "signin.xex"}
-    
-    valid_count = 0
+                  "nomni.xexp1", "nomnifwm.xexp1", "nomnifwk.xexp1",
+                  "SegoeXbox-Light.xtt", "signin.xex", "xam.xex"}
     for entry in fs.entries:
-        # Check if filename is valid ASCII (allowing some non-printable like deletion marker)
-        if not entry.filename:
-            continue
-        
-        # Check if filename looks like hex garbage (all lowercase hex characters)
-        # Encrypted data often produces filenames like "f62e0fb22957..."
-        import re
-        if re.match(r'^[0-9a-f]{10,}$', entry.filename):
-            # Likely encrypted/garbage
-            return False
-        
-        # Check if filename has at least some printable ASCII characters
-        printable_chars = sum(1 for c in entry.filename if 32 <= ord(c) <= 126)
-        if printable_chars < len(entry.filename) * 0.7:  # At least 70% printable
-            continue
-        
-        # Check if block_number and size are reasonable
-        if entry.block_number >= 0x10000:  # Unlikely to have 65536+ blocks
-            continue
-        if entry.length > 0x10000000:  # Unlikely to have 256MB+ files in FlashFS
-            continue
-        
-        # Check for known system files
-        if entry.filename in known_files:
+        if entry.filename in known_files or entry.filename.endswith(".xex"):
             return True
-        
-        # Check for .xex or .xexp1 extensions (common in FlashFS)
-        if entry.filename.endswith('.xex') or entry.filename.endswith('.xexp1'):
-            valid_count += 1
-        elif entry.filename.endswith('.bin') or entry.filename.endswith('.xtt'):
-            valid_count += 1
-        
-        if valid_count >= 3:  # At least 3 valid entries is a good sign
-            return True
-    
-    return valid_count >= 1
+    return False
 
 
 def validate_flashfs(fs: FlashFs, logical: bytes, si: SpareInfo) -> list:
@@ -870,16 +859,17 @@ def print_list(img: NandImage, show_deleted: bool = False) -> None:
         print("  (no entries)")
         return
 
-    print(f"  {'Filename':<24}  {'Block':>7}  {'Size':>12}  {'Timestamp':>12}  Notes")
-    print("  " + "-" * 74)
+    print(f"  {'Filename':<24}  {'Block':>7}  {'Size':>12}  {'Timestamp':>19}  Notes")
+    print("  " + "-" * 81)
     for e in entries:
         known_mark = " *" if e.filename in KNOWN_FS_FILES else ""
         del_mark   = " [DEL]" if e.deleted else ""
+        ts_str     = format_timestamp(e.timestamp)
         print(
             f"  {e.filename:<24}  "
             f"0x{e.block_number:04X}  "
             f"{e.length:>12,}  "
-            f"  0x{e.timestamp:08X}  "
+            f"  {ts_str:>19}  "
             f"{known_mark}{del_mark}"
         )
     print()

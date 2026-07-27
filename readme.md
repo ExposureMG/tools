@@ -1,11 +1,15 @@
-Xbox 360 Scripts
+# Xbox 360 Tools / Scripts, and Research
 
-compare.py -> compare two nand images
+[fstool.py](fstool.py) -> Read, validate, and extract a NAND FlashFS
 
-extract.py -> extract everything from a nand image
+[compare.py](compare.py) -> compare two nand images
 
-set_smcconf_0.py -> set SMC config addr to 0
+[extract.py](extract.py) -> extract everything from a nand image
 
-splitbb.py -> Split 2048+64 BB pages into 4x 512+16 SB pages
+[splitbb.py](splitbb.py) -> Split 2048+64 BB pages into 4x 512+16 SB pages
 
-stripspare.py -> Strip the 16 bytes of spare data from each page
+[stripspare.py](stripspare.py) -> Strip the 16 bytes of spare data from each page
+
+[set_smcconf_0.py](set_smcconf_0.py) -> set SMC config addr in NAND header to 0
+
+[set_size_0.py](set_size_0.py) -> set Size addr in NAND header to 0
