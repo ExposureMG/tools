@@ -149,27 +149,26 @@ def build_version(data: bytes) -> int:
     return struct.unpack_from(">H", data, 0x02)[0]
 
 
-def decrypt_cb_1bl(section: bytes, secret_1bl: bytes) -> bytes:
+def decrypt_cb_1bl(section: bytes, secret_1bl: bytes) -> tuple[bytes, bytes]:
     key = hmac_sha1_16(secret_1bl, section[0x10:0x20])
-    return section[0:0x10] + key + rc4_crypt(key, section[0x20:])
+    decrypted = section[0:0x20] + rc4_crypt(key, section[0x20:])
+    return decrypted, key
 
 
-def decrypt_cb_cpu(section: bytes, previous_cb: bytes, cpu_key: bytes) -> bytes:
+def decrypt_cb_cpu(section: bytes, cb_a_key: bytes, cpu_key: bytes) -> bytes:
     material = section[0x10:0x20] + cpu_key
-    key = hmac_sha1_16(previous_cb[0x10:0x20], material)
-    return section[0:0x10] + key + rc4_crypt(key, section[0x20:])
+    key = hmac_sha1_16(cb_a_key, material)
+    return section[0:0x20] + rc4_crypt(key, section[0x20:])
 
 
-def decrypt_cd(section: bytes, previous_cb: bytes, cpu_key: bytes | None) -> bytes:
-    key = hmac_sha1_16(previous_cb[0x10:0x20], section[0x10:0x20])
-    if cpu_key and build_version(section) >= 1920:
-        key = hmac_sha1_16(cpu_key, key)
-    return section[0:0x10] + key + rc4_crypt(key, section[0x20:])
+def decrypt_cd(section: bytes, cb_b_key: bytes) -> bytes:
+    key = hmac_sha1_16(cb_b_key, section[0x10:0x20])
+    return section[0:0x20] + rc4_crypt(key, section[0x20:])
 
 
-def decrypt_ce(section: bytes, cd_section: bytes) -> bytes:
-    key = hmac_sha1_16(cd_section[0x10:0x20], section[0x10:0x20])
-    return section[0:0x10] + key + rc4_crypt(key, section[0x20:])
+def decrypt_ce(section: bytes, cd_key: bytes) -> bytes:
+    key = hmac_sha1_16(cd_key, section[0x10:0x20])
+    return section[0:0x20] + rc4_crypt(key, section[0x20:])
 
 
 def decrypt_cf(section: bytes, secret_1bl: bytes) -> bytes:
@@ -434,7 +433,26 @@ def is_bootloader_decrypted(name: str, section: bytes) -> bool:
         if len(section) >= 0x3C0:
             return all(b == 0 for b in section[0x2A0:0x3C0])
         return False
-    elif name in ("CD", "CE", "CG"):
+    elif name == "CD":
+        if len(section) >= 0x40:
+            if all(b == 0 for b in section[0x20:0x40]):
+                return True
+            if section[0:2] in (b"CD", b"SD") and len(section) >= 0x290:
+                # Check for unencrypted branch/opcode patterns in CD payload (e.g., 0x28C)
+                w = struct.unpack_from(">I", section, 0x28C)[0]
+                if (w & 0xFC000000) == 0x48000000 or (w & 0xFC000000) == 0x38000000 or w == 0x60000000:
+                    return True
+        return False
+    elif name == "CE":
+        if len(section) >= 0x40:
+            if all(b == 0 for b in section[0x20:0x30]):
+                return True
+            if section[0:2] in (b"CE", b"SE"):
+                w = struct.unpack_from(">I", section, 0x30)[0]
+                if (w & 0xFC000000) in (0x48000000, 0x38000000, 0x3C000000, 0x60000000):
+                    return True
+        return False
+    elif name == "CG":
         if len(section) >= 0x40:
             return all(b == 0 for b in section[0x20:0x40])
         return False
@@ -456,6 +474,9 @@ def decrypt_bootloader_chain(
     last_cd: bytes | None = None
     last_cf: bytes | None = None
 
+    last_cb_key: bytes | None = None
+    last_cd_key: bytes | None = None
+
     for bootloader in chain:
         section = extract_slice(image, int(bootloader["offset"]), int(bootloader["aligned_size"]))
         name = str(bootloader["name"])
@@ -469,8 +490,15 @@ def decrypt_bootloader_chain(
             decrypted = section
             if name in ("CB", "CBB"):
                 last_cb = section
+                if secret_1bl and len(section) >= 0x20:
+                    if occurrence == 1:
+                        last_cb_key = hmac_sha1_16(secret_1bl, section[0x10:0x20])
+                    elif occurrence == 2 and cpu_key and last_cb_key:
+                        last_cb_key = hmac_sha1_16(last_cb_key, section[0x10:0x20] + cpu_key)
             elif name == "CD":
                 last_cd = section
+                if last_cb_key and len(section) >= 0x20:
+                    last_cd_key = hmac_sha1_16(last_cb_key, section[0x10:0x20])
             elif name == "CF":
                 last_cf = section
         else:
@@ -482,33 +510,39 @@ def decrypt_bootloader_chain(
                         elif len(section) < 0x20:
                             decrypt_error = "section too small"
                         else:
-                            decrypted = decrypt_cb_1bl(section, secret_1bl)
+                            decrypted, last_cb_key = decrypt_cb_1bl(section, secret_1bl)
                     else:
-                        if last_cb is None:
-                            decrypt_error = "needs prior decrypted CB"
+                        if last_cb_key is None and secret_1bl and last_cb and len(last_cb) >= 0x20:
+                            last_cb_key = hmac_sha1_16(secret_1bl, last_cb[0x10:0x20])
+                        if last_cb_key is None:
+                            decrypt_error = "needs prior decrypted CB key"
                         elif cpu_key is None:
                             decrypt_error = "needs CPU key"
                         elif len(section) < 0x20:
                             decrypt_error = "section too small"
                         else:
-                            decrypted = decrypt_cb_cpu(section, last_cb, cpu_key)
+                            decrypted = decrypt_cb_cpu(section, last_cb_key, cpu_key)
+                            if decrypted is not None and cpu_key:
+                                last_cb_key = hmac_sha1_16(last_cb_key, section[0x10:0x20] + cpu_key)
                     if decrypted is not None:
                         last_cb = decrypted
                 elif name == "CD":
-                    if last_cb is None:
-                        decrypt_error = "needs decrypted CB"
+                    if last_cb_key is None:
+                        decrypt_error = "needs prior decrypted CB key"
                     elif len(section) < 0x20:
                         decrypt_error = "section too small"
                     else:
-                        decrypted = decrypt_cd(section, last_cb, cpu_key)
+                        decrypted = decrypt_cd(section, last_cb_key)
                         last_cd = decrypted
+                        if len(decrypted) >= 0x20:
+                            last_cd_key = hmac_sha1_16(last_cb_key, decrypted[0x10:0x20])
                 elif name == "CE":
-                    if last_cd is None:
-                        decrypt_error = "needs decrypted CD"
+                    if last_cd_key is None:
+                        decrypt_error = "needs decrypted CD key"
                     elif len(section) < 0x20:
                         decrypt_error = "section too small"
                     else:
-                        decrypted = decrypt_ce(section, last_cd)
+                        decrypted = decrypt_ce(section, last_cd_key)
                 elif name == "CF":
                     if secret_1bl is None:
                         decrypt_error = "needs 1BL key"

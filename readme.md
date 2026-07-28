@@ -1,6 +1,8 @@
 # Xbox 360 Tools / Scripts, and Research
 
-[nandtool.py](nandtool.py) -> Read, extract, and compare the main bootchain of two nand images
+[nandtool.py](nandtool.py) -> Read, extract, compare, and verify the main bootchain of two nand images
+
+[patchreader.py](patchreader.py) -> Parse freeBOOT patches.bin into a nandtool-readable text file
 
 [fstool.py](fstool.py) -> Read, validate, list, and extract a NAND FlashFS
 
