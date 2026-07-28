@@ -427,6 +427,24 @@ def scan_bootloaders(image: bytes, start: int = 0x8000, end: int = 0x200000) -> 
     return found
 
 
+def is_bootloader_decrypted(name: str, section: bytes) -> bool:
+    if not section or len(section) < 0x40:
+        return False
+    if name == "CB":
+        if len(section) >= 0x3C0:
+            return all(b == 0 for b in section[0x2A0:0x3C0])
+        return False
+    elif name in ("CD", "CE", "CG"):
+        if len(section) >= 0x40:
+            return all(b == 0 for b in section[0x20:0x40])
+        return False
+    elif name == "CF":
+        if len(section) >= 0x50:
+            return all(b == 0 for b in section[0x30:0x50])
+        return False
+    return False
+
+
 def decrypt_bootloader_chain(
     image: bytes,
     chain: list[dict[str, int | str]],
@@ -444,71 +462,85 @@ def decrypt_bootloader_chain(
         occurrence = int(bootloader["occurrence"])
         decrypted: bytes | None = None
         decrypt_error: str | None = None
+        is_pre_decrypted: bool = False
 
-        try:
-            if name == "CB":
-                if occurrence == 1:
+        if is_bootloader_decrypted(name, section):
+            is_pre_decrypted = True
+            decrypted = section
+            if name in ("CB", "CBB"):
+                last_cb = section
+            elif name == "CD":
+                last_cd = section
+            elif name == "CF":
+                last_cf = section
+        else:
+            try:
+                if name == "CB":
+                    if occurrence == 1:
+                        if secret_1bl is None:
+                            decrypt_error = "needs 1BL key"
+                        elif len(section) < 0x20:
+                            decrypt_error = "section too small"
+                        else:
+                            decrypted = decrypt_cb_1bl(section, secret_1bl)
+                    else:
+                        if last_cb is None:
+                            decrypt_error = "needs prior decrypted CB"
+                        elif cpu_key is None:
+                            decrypt_error = "needs CPU key"
+                        elif len(section) < 0x20:
+                            decrypt_error = "section too small"
+                        else:
+                            decrypted = decrypt_cb_cpu(section, last_cb, cpu_key)
+                    if decrypted is not None:
+                        last_cb = decrypted
+                elif name == "CD":
+                    if last_cb is None:
+                        decrypt_error = "needs decrypted CB"
+                    elif len(section) < 0x20:
+                        decrypt_error = "section too small"
+                    else:
+                        decrypted = decrypt_cd(section, last_cb, cpu_key)
+                        last_cd = decrypted
+                elif name == "CE":
+                    if last_cd is None:
+                        decrypt_error = "needs decrypted CD"
+                    elif len(section) < 0x20:
+                        decrypt_error = "section too small"
+                    else:
+                        decrypted = decrypt_ce(section, last_cd)
+                elif name == "CF":
                     if secret_1bl is None:
                         decrypt_error = "needs 1BL key"
+                    elif len(section) < 0x30:
+                        decrypt_error = "section too small"
+                    else:
+                        decrypted = decrypt_cf(section, secret_1bl)
+                        last_cf = decrypted
+                elif name == "CG":
+                    if last_cf is None:
+                        decrypt_error = "needs decrypted CF"
                     elif len(section) < 0x20:
                         decrypt_error = "section too small"
                     else:
-                        decrypted = decrypt_cb_1bl(section, secret_1bl)
-                else:
-                    if last_cb is None:
-                        decrypt_error = "needs prior decrypted CB"
-                    elif cpu_key is None:
-                        decrypt_error = "needs CPU key"
-                    elif len(section) < 0x20:
-                        decrypt_error = "section too small"
-                    else:
-                        decrypted = decrypt_cb_cpu(section, last_cb, cpu_key)
-                if decrypted is not None:
-                    last_cb = decrypted
-            elif name == "CD":
-                if last_cb is None:
-                    decrypt_error = "needs decrypted CB"
-                elif len(section) < 0x20:
-                    decrypt_error = "section too small"
-                else:
-                    decrypted = decrypt_cd(section, last_cb, cpu_key)
-                    last_cd = decrypted
-            elif name == "CE":
-                if last_cd is None:
-                    decrypt_error = "needs decrypted CD"
-                elif len(section) < 0x20:
-                    decrypt_error = "section too small"
-                else:
-                    decrypted = decrypt_ce(section, last_cd)
-            elif name == "CF":
-                if secret_1bl is None:
-                    decrypt_error = "needs 1BL key"
-                elif len(section) < 0x30:
-                    decrypt_error = "section too small"
-                else:
-                    decrypted = decrypt_cf(section, secret_1bl)
-                    last_cf = decrypted
-            elif name == "CG":
-                if last_cf is None:
-                    decrypt_error = "needs decrypted CF"
-                elif len(section) < 0x20:
-                    decrypt_error = "section too small"
-                else:
-                    decrypted = decrypt_cg(section, last_cf)
-        except Exception as exc:
-            decrypt_error = str(exc)
+                        decrypted = decrypt_cg(section, last_cf)
+            except Exception as exc:
+                decrypt_error = str(exc)
 
         entry = dict(bootloader)
         entry["bytes"] = section
         entry["decrypted"] = decrypted
+        entry["pre_decrypted"] = is_pre_decrypted
         entry["decrypt_error"] = decrypt_error
         out.append(entry)
     return out
 
 
 def format_decrypt_status(stage: dict[str, object]) -> str:
+    if stage.get("pre_decrypted"):
+        return "pre-decrypted"
     if stage.get("decrypted") is not None:
-        return "ok"
+        return "ok (decrypted by tool)"
     error = stage.get("decrypt_error")
     return str(error) if error else "n/a"
 
@@ -743,10 +775,16 @@ def run_compare(path_a: Path, path_b: Path, secret_1bl: bytes | None = None, cpu
             continue
         left_dec = left.get("decrypted")
         right_dec = right.get("decrypted")
+        left_pre = left.get("pre_decrypted", False)
+        right_pre = right.get("pre_decrypted", False)
+
         if isinstance(left_dec, bytes) and isinstance(right_dec, bytes):
             comparable = True
+            left_mode = "pre-decrypted" if left_pre else "decrypted"
+            right_mode = "pre-decrypted" if right_pre else "decrypted"
+            mode_note = f" (A: {left_mode}, B: {right_mode})"
             print(
-                f"{left['label']:4} diff={diff_count(left_dec, right_dec)} / {max(len(left_dec), len(right_dec))}"
+                f"{left['label']:4} diff={diff_count(left_dec, right_dec)} / {max(len(left_dec), len(right_dec))}{mode_note}"
             )
             if left_dec != right_dec:
                 for start, end in diff_ranges(left_dec, right_dec):
@@ -882,13 +920,175 @@ def run_extract(
 
 
 # ---------------------------------------------------------------------------
+# Patch Check Logic
+# ---------------------------------------------------------------------------
+
+def parse_patchreader_text(text: str) -> tuple[str, dict[str, list[tuple[int, list[int]]]]]:
+    tag = "UNKNOWN"
+    sections: dict[str, list[tuple[int, list[int]]]] = {}
+    current_sec: str | None = None
+    current_offset: int | None = None
+    current_words: list[int] = []
+
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            tag = line[1:-1].strip()
+            continue
+        if line.endswith(":") and not line.startswith("0x") and not line.startswith("0X"):
+            if current_sec and current_offset is not None and current_words:
+                sections.setdefault(current_sec, []).append((current_offset, current_words))
+                current_offset = None
+                current_words = []
+            current_sec = line[:-1].strip().lower()
+            sections.setdefault(current_sec, [])
+            continue
+        if line.startswith("0x") or line.startswith("0X"):
+            if current_sec and current_offset is not None and current_words:
+                sections.setdefault(current_sec, []).append((current_offset, current_words))
+                current_words = []
+            parts = line.split(":")
+            addr_str = parts[0].strip()
+            try:
+                current_offset = int(addr_str, 16)
+            except ValueError:
+                current_offset = None
+            if len(parts) > 1 and parts[1].strip():
+                word_tokens = parts[1].strip().split()
+                for tok in word_tokens:
+                    try:
+                        current_words.append(int(tok, 16))
+                    except ValueError:
+                        pass
+            continue
+        if current_sec and current_offset is not None:
+            tokens = line.split()
+            for tok in tokens:
+                try:
+                    current_words.append(int(tok, 16))
+                except ValueError:
+                    pass
+
+    if current_sec and current_offset is not None and current_words:
+        sections.setdefault(current_sec, []).append((current_offset, current_words))
+
+    return tag, sections
+
+
+def run_patchcheck(
+    patch_path: Path,
+    image_path: Path,
+    secret_1bl: bytes | None = None,
+    cpu_key: bytes | None = None,
+) -> None:
+    patch_text = patch_path.read_text(encoding="utf-8")
+    tag, patch_sections = parse_patchreader_text(patch_text)
+
+    raw_image = image_path.read_bytes()
+    logical_image, _ = maybe_strip_ecc(raw_image)
+
+    chain = scan_bootloaders(logical_image)
+    dec_chain = decrypt_bootloader_chain(logical_image, chain, secret_1bl, cpu_key)
+
+    cb_stages = [st for st in dec_chain if str(st["name"]) == "CB"]
+    target_cb_stage: dict[str, object] | None = None
+    if len(cb_stages) >= 2:
+        target_cb_stage = cb_stages[1]
+    elif len(cb_stages) == 1:
+        target_cb_stage = cb_stages[0]
+
+    cd_stages = [st for st in dec_chain if str(st["name"]) == "CD"]
+    target_cd_stage: dict[str, object] | None = cd_stages[0] if cd_stages else None
+
+    print("=" * 64)
+    print("  NAND Patch Application Check")
+    print("=" * 64)
+    print(f"  Patch file : {patch_path}")
+    print(f"  NAND Image : {image_path}")
+    print(f"  Mode Tag   : [{tag}]")
+    print(f"  1BL Key    : {'provided' if secret_1bl else 'missing'}")
+    print(f"  CPU Key    : {'provided' if cpu_key else 'missing'}")
+    print()
+
+    total_checks = 0
+    passed_checks = 0
+    failed_checks = 0
+
+    ignored_sections = {"1bl", "khv"}
+
+    for sec_name, entries in patch_sections.items():
+        if sec_name.lower() in ignored_sections:
+            print(f"[{sec_name}] (skipped)")
+            continue
+
+        stage_obj: dict[str, object] | None = None
+        if sec_name.lower() in ("cb", "cbb"):
+            stage_obj = target_cb_stage
+        elif sec_name.lower() == "cd":
+            stage_obj = target_cd_stage
+
+        print(f"[{sec_name}]")
+        if not stage_obj:
+            print(f"  ERROR: stage '{sec_name}' not found in NAND bootloader chain")
+            failed_checks += len(entries)
+            total_checks += len(entries)
+            print()
+            continue
+
+        stage_bytes = stage_obj.get("decrypted")
+        if not isinstance(stage_bytes, bytes):
+            err = stage_obj.get("decrypt_error", "decryption failed")
+            print(f"  ERROR: stage '{sec_name}' is not decrypted ({err})")
+            failed_checks += len(entries)
+            total_checks += len(entries)
+            print()
+            continue
+
+        for offset, expected_words in entries:
+            total_checks += 1
+            byte_len = len(expected_words) * 4
+            if offset + byte_len > len(stage_bytes):
+                print(f"  0x{offset:08X}: OUT OF BOUNDS (stage size: 0x{len(stage_bytes):X})")
+                failed_checks += 1
+                continue
+
+            actual_words = []
+            for w_idx in range(len(expected_words)):
+                w_off = offset + (w_idx * 4)
+                w_val = struct.unpack_from(">I", stage_bytes, w_off)[0]
+                actual_words.append(w_val)
+
+            if actual_words == expected_words:
+                passed_checks += 1
+                words_str = " ".join(f"{w:08X}" for w in expected_words[:4])
+                if len(expected_words) > 4:
+                    words_str += f" ... ({len(expected_words)} words)"
+                print(f"  0x{offset:08X}: MATCH ({words_str})")
+            else:
+                failed_checks += 1
+                exp_str = " ".join(f"{w:08X}" for w in expected_words)
+                act_str = " ".join(f"{w:08X}" for w in actual_words)
+                print(f"  0x{offset:08X}: MISMATCH!")
+                print(f"    Expected : {exp_str}")
+                print(f"    Actual   : {act_str}")
+
+        print()
+
+    print("=" * 64)
+    print(f"  Summary: {passed_checks}/{total_checks} patches MATCH, {failed_checks} MISMATCH")
+    print("=" * 64)
+
+
+# ---------------------------------------------------------------------------
 # CLI Parser
 # ---------------------------------------------------------------------------
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="nandtool",
-        description="Xbox 360 NAND Image Tool — inspect, compare, and extract NAND images.",
+        description="Xbox 360 NAND Image Tool — inspect, compare, extract, and check patches.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     sub = parser.add_subparsers(dest="command", metavar="<command>")
@@ -921,6 +1121,15 @@ def build_parser() -> argparse.ArgumentParser:
     p_ext.add_argument("--secret-1bl-file", dest="secret_1bl_file", type=Path, help="File containing 1BL key")
     p_ext.add_argument("--cpu-key", dest="cpu_key", help="Hex CPU key used for paired CB/CD decryption")
     p_ext.add_argument("--cpu-key-file", dest="cpu_key_file", type=Path, help="File containing CPU key")
+
+    # patchcheck
+    p_check = sub.add_parser("patchcheck", help="Verify patch application in NAND image against patchreader text file.")
+    p_check.add_argument("patch_txt", type=Path, help="Path to patchreader formatted text file")
+    p_check.add_argument("image", type=Path, help="Path to NAND image file")
+    p_check.add_argument("--secret-1bl", dest="secret_1bl", help="Hex 1BL key used for CB/CF decryption")
+    p_check.add_argument("--secret-1bl-file", dest="secret_1bl_file", type=Path, help="File containing 1BL key")
+    p_check.add_argument("--cpu-key", dest="cpu_key", help="Hex CPU key used for paired CB/CD decryption")
+    p_check.add_argument("--cpu-key-file", dest="cpu_key_file", type=Path, help="File containing CPU key")
 
     return parser
 
@@ -960,7 +1169,16 @@ def main() -> None:
             print(f"Error: file not found: {args.image}", file=sys.stderr)
             sys.exit(1)
         out = args.output_dir or (args.image.parent / f"{args.image.stem}_extracted")
-        run_extract(args.image, output_dir=out, secret_1bl=secret_1bl, cpu_key=cpu_key, prefix=args.prefix)
+        run_extract(args.image, out, secret_1bl=secret_1bl, cpu_key=cpu_key, prefix=args.prefix)
+
+    elif args.command == "patchcheck":
+        if not args.patch_txt.exists():
+            print(f"Error: file not found: {args.patch_txt}", file=sys.stderr)
+            sys.exit(1)
+        if not args.image.exists():
+            print(f"Error: file not found: {args.image}", file=sys.stderr)
+            sys.exit(1)
+        run_patchcheck(args.patch_txt, args.image, secret_1bl=secret_1bl, cpu_key=cpu_key)
 
 
 if __name__ == "__main__":
