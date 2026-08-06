@@ -463,6 +463,35 @@ def is_bootloader_decrypted(name: str, section: bytes) -> bool:
     return False
 
 
+def extract_cg_section(image: bytes, bootloader: dict[str, int | str], last_cf: bytes | None) -> bytes:
+    offset = int(bootloader["offset"])
+    total_size = int(bootloader["aligned_size"])
+    slot_end = (offset & ~0xFFFF) + 0x10000
+    slot_cg_len = min(max(0, slot_end - offset), total_size)
+    first_part = extract_slice(image, offset, slot_cg_len)
+    if len(first_part) >= total_size:
+        return first_part
+    parts = [first_part]
+    needed = total_size - len(first_part)
+
+    if last_cf and len(last_cf) >= 0x32:
+        blocks_used = struct.unpack_from(">H", last_cf, 0x30)[0]
+        if 0 < blocks_used <= 223 and len(last_cf) >= 0x32 + (blocks_used * 2):
+            for i in range(blocks_used):
+                b_num = struct.unpack_from(">H", last_cf, 0x32 + (i * 2))[0]
+                b_off = b_num * 0x4000
+                chunk_len = min(0x4000, needed)
+                chunk = extract_slice(image, b_off, chunk_len)
+                parts.append(chunk)
+                needed -= len(chunk)
+                if needed <= 0:
+                    break
+
+    if needed > 0:
+        parts.append(extract_slice(image, offset + slot_cg_len, needed))
+    return b"".join(parts)
+
+
 def decrypt_bootloader_chain(
     image: bytes,
     chain: list[dict[str, int | str]],
@@ -478,8 +507,11 @@ def decrypt_bootloader_chain(
     last_cd_key: bytes | None = None
 
     for bootloader in chain:
-        section = extract_slice(image, int(bootloader["offset"]), int(bootloader["aligned_size"]))
         name = str(bootloader["name"])
+        if name == "CG":
+            section = extract_cg_section(image, bootloader, last_cf)
+        else:
+            section = extract_slice(image, int(bootloader["offset"]), int(bootloader["aligned_size"]))
         occurrence = int(bootloader["occurrence"])
         decrypted: bytes | None = None
         decrypt_error: str | None = None
@@ -760,6 +792,12 @@ def run_compare(path_a: Path, path_b: Path, secret_1bl: bytes | None = None, cpu
     # Bootloaders
     chain_a = scan_bootloaders(logical_a)
     chain_b = scan_bootloaders(logical_b)
+
+    # Decryption comparison
+    dec_a = decrypt_bootloader_chain(logical_a, chain_a, secret_1bl, cpu_key)
+    dec_b = decrypt_bootloader_chain(logical_b, chain_b, secret_1bl, cpu_key)
+
+    # Bootloaders
     print("\n[Bootloader Chain]")
     print("A:")
     for bl in chain_a:
@@ -774,21 +812,32 @@ def run_compare(path_a: Path, path_b: Path, secret_1bl: bytes | None = None, cpu
             f"size=0x{bl['size']:X} aligned=0x{bl['aligned_size']:X}"
         )
 
+    last_cf_a = next((st.get("bytes") for st in dec_a if str(st.get("name")) == "CF"), None)
+    last_cf_b = next((st.get("bytes") for st in dec_b if str(st.get("name")) == "CF"), None)
+    if isinstance(last_cf_a, bytes) and not is_bootloader_decrypted("CF", last_cf_a):
+        last_cf_a = next((st.get("decrypted") for st in dec_a if str(st.get("name")) == "CF"), None)
+    if isinstance(last_cf_b, bytes) and not is_bootloader_decrypted("CF", last_cf_b):
+        last_cf_b = next((st.get("decrypted") for st in dec_b if str(st.get("name")) == "CF"), None)
+
     print("\n[Bootloader Stage Diffs]")
     for left, right in zip(chain_a, chain_b):
         size = min(int(left["aligned_size"]), int(right["aligned_size"]))
-        left_bytes = extract_slice(logical_a, int(left["offset"]), size)
-        right_bytes = extract_slice(logical_b, int(right["offset"]), size)
+        if str(left["name"]) == "CG":
+            left_bytes = extract_cg_section(logical_a, left, last_cf_a if isinstance(last_cf_a, bytes) else None)
+        else:
+            left_bytes = extract_slice(logical_a, int(left["offset"]), size)
+
+        if str(right["name"]) == "CG":
+            right_bytes = extract_cg_section(logical_b, right, last_cf_b if isinstance(last_cf_b, bytes) else None)
+        else:
+            right_bytes = extract_slice(logical_b, int(right["offset"]), size)
+
         print(
             f"{left['label']:4} A@0x{int(left['offset']):06X} B@0x{int(right['offset']):06X} "
-            f"diff={diff_count(left_bytes, right_bytes)} / {size}"
+            f"diff={diff_count(left_bytes, right_bytes)} / {max(len(left_bytes), len(right_bytes))}"
         )
     if len(chain_a) != len(chain_b):
         print(f"stage count differs: A={len(chain_a)} B={len(chain_b)}")
-
-    # Decryption comparison
-    dec_a = decrypt_bootloader_chain(logical_a, chain_a, secret_1bl, cpu_key)
-    dec_b = decrypt_bootloader_chain(logical_b, chain_b, secret_1bl, cpu_key)
 
     print("\n[Bootloader Decryption]")
     print(f"1BL key provided : {secret_1bl is not None}")

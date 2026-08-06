@@ -1,0 +1,1 @@
+python nandtool.py compare --cpu-key 93FB9D011930AFC453AA75B183EFAC09 --secret-1bl DD88AD0C9ED669E7B56794FB68563EFA updflash.bin 17559_g2_jasperbb.bin

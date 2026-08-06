@@ -165,19 +165,19 @@ def strip_spare(raw: bytes, si: SpareInfo) -> bytes:
 def _spare_seq_smallblock(spare: bytes) -> int:
     if len(spare) < 7:
         return 0
-    return spare[2] | (spare[3] << 8) | (spare[4] << 16) | (spare[6] << 24)
+    return spare[0] | (spare[3] << 8) | (spare[4] << 16) | (spare[6] << 24)
 
 
 def _spare_seq_bigonsmall(spare: bytes) -> int:
-    if len(spare) < 5:
+    if len(spare) < 7:
         return 0
-    return spare[0] | (spare[3] << 8) | (spare[4] << 16)
+    return spare[0] | (spare[3] << 8) | (spare[4] << 16) | (spare[6] << 24)
 
 
 def _spare_seq_bigblock(spare: bytes) -> int:
-    if len(spare) < 6:
+    if len(spare) < 7:
         return 0
-    return spare[5] | (spare[4] << 8) | (spare[3] << 16)
+    return spare[5] | (spare[3] << 8) | (spare[4] << 16) | (spare[6] << 24)
 
 
 def _spare_block_type_sb(spare: bytes) -> int:
@@ -205,6 +205,7 @@ def get_spare_accessors(si: SpareInfo):
         return (_spare_seq_bigblock, _spare_block_type_bb, None, None)
     else:
         return (_spare_seq_smallblock, _spare_block_type_sb, _spare_size_sb, _spare_page_count_sb)
+
 
 
 
